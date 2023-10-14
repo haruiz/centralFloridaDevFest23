@@ -1,0 +1,170 @@
+# PIPELINE DEFINITION
+# Name: process-string-pipeline
+# Description: Pipeline definition
+# Inputs:
+#    input_string: str
+components:
+  comp-print-string:
+    executorLabel: exec-print-string
+    inputDefinitions:
+      parameters:
+        input_string:
+          parameterType: STRING
+  comp-read-string:
+    executorLabel: exec-read-string
+    inputDefinitions:
+      parameters:
+        input_string:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+  comp-transform-string:
+    executorLabel: exec-transform-string
+    inputDefinitions:
+      parameters:
+        input_string:
+          parameterType: STRING
+    outputDefinitions:
+      parameters:
+        Output:
+          parameterType: STRING
+defaultPipelineRoot: gs://tamu-vertex-ai-pipelines-bucket
+deploymentSpec:
+  executors:
+    exec-print-string:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - print_string
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'kfp==2.0.0'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef print_string(input_string: str):\n    \"\"\"\n    Pipeline definition\n\
+          \    \"\"\"\n    print(input_string)\n\n"
+        image: python:3.9
+    exec-read-string:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - read_string
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'kfp==2.0.0'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef read_string(input_string: str) -> str:\n    \"\"\"\n    Hello\
+          \ World component\n    \"\"\"\n    return input_string\n\n"
+        image: python:3.9
+    exec-transform-string:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - transform_string
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'kfp==2.0.0'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef transform_string(input_string: str) -> str:\n    \"\"\"\n   \
+          \ Pipeline definition\n    \"\"\"\n    output_string = input_string.upper()\n\
+          \    return output_string\n\n"
+        image: python:3.9
+pipelineInfo:
+  description: Pipeline definition
+  name: process-string-pipeline
+root:
+  dag:
+    tasks:
+      print-string:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-print-string
+        dependentTasks:
+        - transform-string
+        inputs:
+          parameters:
+            input_string:
+              taskOutputParameter:
+                outputParameterKey: Output
+                producerTask: transform-string
+        taskInfo:
+          name: print-string
+      read-string:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-read-string
+        inputs:
+          parameters:
+            input_string:
+              componentInputParameter: input_string
+        taskInfo:
+          name: read-string
+      transform-string:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-transform-string
+        dependentTasks:
+        - read-string
+        inputs:
+          parameters:
+            input_string:
+              taskOutputParameter:
+                outputParameterKey: Output
+                producerTask: read-string
+        taskInfo:
+          name: transform-string
+  inputDefinitions:
+    parameters:
+      input_string:
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.0.0

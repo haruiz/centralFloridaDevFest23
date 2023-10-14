@@ -1,0 +1,67 @@
+export PROJECT_ID=$(gcloud config get-value core/project)
+export SERVICE_ACCOUNT_ID=vertex-ai-service-account
+export BUCKET_NAME=uao-course-vertex-ai-pipelines
+export REGION=us-central1
+export PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format="value(projectNumber)")
+export KEY_FILE=key.json
+
+gcloud init
+gcloud login
+gcloud projects list
+gcloud config set project <project id>
+gcloud services enable aiplatform.googleapis.com  storage.googleapis.com compute.googleapis.com
+
+# Use the following instructions to create a service account and grant it granular permissions to Google Cloud resources.
+
+gcloud iam service-accounts create $SERVICE_ACCOUNT_ID \
+--description="Service account use to run and manage the vertex AI pipelines" \
+--display-name="Vertex AI pipelines service account"
+
+gcloud iam service-accounts list
+
+#create key
+gcloud iam service-accounts keys create $KEY_FILE \
+--iam-account=$SERVICE_ACCOUNT_ID@$PROJECT_ID.iam.gserviceaccount.com
+
+
+# Grant your service account access to any Google Cloud resources that you use in your pipelines.
+
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+--member="serviceAccount:$SERVICE_ACCOUNT_ID@$PROJECT_ID.iam.gserviceaccount.com" \
+--role="roles/aiplatform.user"
+
+# access to storage
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+--member="serviceAccount:$SERVICE_ACCOUNT_ID@$PROJECT_ID.iam.gserviceaccount.com" \
+--role="roles/storage.admin"
+
+# To use Vertex AI Pipelines to run pipelines with this service account, run the following command to grant your user account the roles/iam.serviceAccountUser role for your service account.
+
+
+gcloud iam service-accounts add-iam-policy-binding \
+    $SERVICE_ACCOUNT_ID@$PROJECT_ID.iam.gserviceaccount.com \
+    --member="user:$(gcloud config get-value core/account)" \
+    --role="roles/iam.serviceAccountUser"
+
+# Replace the following values:
+#     SERVICE_ACCOUNT_ID: The ID for the service account.
+#     PROJECT_ID: The project that your service account was created in.
+#     USER_EMAIL: The email address of the user that runs pipelines as this service account.
+
+# gcloud projects add-iam-policy-binding $PROJECT_ID \
+# --member="serviceAccount:$SERVICE_ACCOUNT_ID@$PROJECT_ID.iam.gserviceaccount.com" \
+# --role="roles/aiplatform.admin"
+
+# If you prefer to use the Compute Engine default service account to run your pipelines, enable the Compute Engine API and grant your default service account access to Vertex AI. Note that it might take some time for the access change to propagate. For more information, see Access change propagation.
+
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:$PROJECT_NUMBER-compute@developer.gserviceaccount.com" \
+    --role="roles/aiplatform.user"
+
+
+gsutil mb -p $PROJECT_ID -l $REGION gs://$BUCKET_NAME
+
+

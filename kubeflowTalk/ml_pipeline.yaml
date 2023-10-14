@@ -1,0 +1,737 @@
+# PIPELINE DEFINITION
+# Name: ml-pipeline
+# Inputs:
+#    blob_name: str
+#    bucket_name: str
+# Outputs:
+#    generate-best-model-metrics-classification_metrics_artifact: system.ClassificationMetrics
+#    generate-best-model-metrics-metrics_artifact: system.Metrics
+components:
+  comp-condition-4:
+    dag:
+      tasks:
+        deploy-model:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-deploy-model
+          inputs:
+            artifacts:
+              best_model_artifact:
+                componentInputArtifact: pipelinechannel--train-best-model-best_model_artifact
+            parameters:
+              region:
+                runtimeValue:
+                  constant: us-central1
+          taskInfo:
+            name: deploy-model
+    inputDefinitions:
+      artifacts:
+        pipelinechannel--train-best-model-best_model_artifact:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+      parameters:
+        pipelinechannel--generate-best-model-metrics-Output:
+          parameterType: NUMBER_DOUBLE
+  comp-deploy-model:
+    executorLabel: exec-deploy-model
+    inputDefinitions:
+      artifacts:
+        best_model_artifact:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+      parameters:
+        region:
+          parameterType: STRING
+  comp-exit-handler-1:
+    dag:
+      outputs:
+        artifacts:
+          generate-best-model-metrics-classification_metrics_artifact:
+            artifactSelectors:
+            - outputArtifactKey: classification_metrics_artifact
+              producerSubtask: generate-best-model-metrics
+          generate-best-model-metrics-metrics_artifact:
+            artifactSelectors:
+            - outputArtifactKey: metrics_artifact
+              producerSubtask: generate-best-model-metrics
+      tasks:
+        condition-4:
+          componentRef:
+            name: comp-condition-4
+          dependentTasks:
+          - generate-best-model-metrics
+          - train-best-model
+          inputs:
+            artifacts:
+              pipelinechannel--train-best-model-best_model_artifact:
+                taskOutputArtifact:
+                  outputArtifactKey: best_model_artifact
+                  producerTask: train-best-model
+            parameters:
+              pipelinechannel--generate-best-model-metrics-Output:
+                taskOutputParameter:
+                  outputParameterKey: Output
+                  producerTask: generate-best-model-metrics
+          taskInfo:
+            name: check-accuracy
+          triggerPolicy:
+            condition: inputs.parameter_values['pipelinechannel--generate-best-model-metrics-Output']
+              > 0.7
+        for-loop-3:
+          componentRef:
+            name: comp-for-loop-3
+          dependentTasks:
+          - grab-data
+          inputs:
+            artifacts:
+              pipelinechannel--grab-data-dataset_artifact:
+                taskOutputArtifact:
+                  outputArtifactKey: dataset_artifact
+                  producerTask: grab-data
+          parameterIterator:
+            itemInput: pipelinechannel--loop-item-param-2
+            items:
+              raw: '["Decision Tree", "Naive Bayes", "LDA", "QDA", "KNN", "SVM", "Logistic
+                Regression"]'
+          taskInfo:
+            name: score-models
+        generate-best-model-metrics:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-generate-best-model-metrics
+          dependentTasks:
+          - split-dataset
+          - train-best-model
+          inputs:
+            artifacts:
+              best_model_artifact:
+                taskOutputArtifact:
+                  outputArtifactKey: best_model_artifact
+                  producerTask: train-best-model
+              test_dataset_artifact:
+                taskOutputArtifact:
+                  outputArtifactKey: test_dataset_artifact
+                  producerTask: split-dataset
+          taskInfo:
+            name: generate-best-model-metrics
+        grab-data:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-grab-data
+          inputs:
+            parameters:
+              blob_name:
+                componentInputParameter: pipelinechannel--blob_name
+              bucket_name:
+                componentInputParameter: pipelinechannel--bucket_name
+          taskInfo:
+            name: grab-data
+        log-statistics:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-log-statistics
+          dependentTasks:
+          - grab-data
+          inputs:
+            artifacts:
+              dataset_artifact:
+                taskOutputArtifact:
+                  outputArtifactKey: dataset_artifact
+                  producerTask: grab-data
+          taskInfo:
+            name: log-statistics
+        split-dataset:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-split-dataset
+          dependentTasks:
+          - grab-data
+          inputs:
+            artifacts:
+              dataset_artifact:
+                taskOutputArtifact:
+                  outputArtifactKey: dataset_artifact
+                  producerTask: grab-data
+            parameters:
+              test_size:
+                runtimeValue:
+                  constant: 0.2
+          taskInfo:
+            name: split-dataset
+        train-best-model:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-train-best-model
+          dependentTasks:
+          - for-loop-3
+          - split-dataset
+          inputs:
+            artifacts:
+              score_models:
+                taskOutputArtifact:
+                  outputArtifactKey: pipelinechannel--score-model-model_artifact
+                  producerTask: for-loop-3
+              train_dataset_artifact:
+                taskOutputArtifact:
+                  outputArtifactKey: train_dataset_artifact
+                  producerTask: split-dataset
+          taskInfo:
+            name: train-best-model
+    inputDefinitions:
+      parameters:
+        pipelinechannel--blob_name:
+          parameterType: STRING
+        pipelinechannel--bucket_name:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        generate-best-model-metrics-classification_metrics_artifact:
+          artifactType:
+            schemaTitle: system.ClassificationMetrics
+            schemaVersion: 0.0.1
+        generate-best-model-metrics-metrics_artifact:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+  comp-exit-op:
+    executorLabel: exec-exit-op
+    inputDefinitions:
+      parameters:
+        status:
+          isOptional: true
+          parameterType: TASK_FINAL_STATUS
+  comp-for-loop-3:
+    dag:
+      outputs:
+        artifacts:
+          pipelinechannel--score-model-model_artifact:
+            artifactSelectors:
+            - outputArtifactKey: model_artifact
+              producerSubtask: score-model
+      tasks:
+        score-model:
+          cachingOptions:
+            enableCache: true
+          componentRef:
+            name: comp-score-model
+          inputs:
+            artifacts:
+              dataset_artifact:
+                componentInputArtifact: pipelinechannel--grab-data-dataset_artifact
+            parameters:
+              algorithm:
+                componentInputParameter: pipelinechannel--loop-item-param-2
+          taskInfo:
+            name: score-model
+    inputDefinitions:
+      artifacts:
+        pipelinechannel--grab-data-dataset_artifact:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        pipelinechannel--loop-item-param-2:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        pipelinechannel--score-model-model_artifact:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+          isArtifactList: true
+  comp-generate-best-model-metrics:
+    executorLabel: exec-generate-best-model-metrics
+    inputDefinitions:
+      artifacts:
+        best_model_artifact:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        test_dataset_artifact:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        classification_metrics_artifact:
+          artifactType:
+            schemaTitle: system.ClassificationMetrics
+            schemaVersion: 0.0.1
+        metrics_artifact:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+      parameters:
+        Output:
+          parameterType: NUMBER_DOUBLE
+  comp-grab-data:
+    executorLabel: exec-grab-data
+    inputDefinitions:
+      parameters:
+        blob_name:
+          description: The name of the blob
+          parameterType: STRING
+        bucket_name:
+          description: The name of the bucket
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        dataset_artifact:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-log-statistics:
+    executorLabel: exec-log-statistics
+    inputDefinitions:
+      artifacts:
+        dataset_artifact:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-score-model:
+    executorLabel: exec-score-model
+    inputDefinitions:
+      artifacts:
+        dataset_artifact:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        algorithm:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        model_artifact:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+      parameters:
+        Output:
+          parameterType: NUMBER_DOUBLE
+  comp-split-dataset:
+    executorLabel: exec-split-dataset
+    inputDefinitions:
+      artifacts:
+        dataset_artifact:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+      parameters:
+        test_size:
+          parameterType: NUMBER_DOUBLE
+    outputDefinitions:
+      artifacts:
+        test_dataset_artifact:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+        train_dataset_artifact:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-train-best-model:
+    executorLabel: exec-train-best-model
+    inputDefinitions:
+      artifacts:
+        score_models:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+          isArtifactList: true
+        train_dataset_artifact:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        best_model_artifact:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+defaultPipelineRoot: gs://tamu-vertex-ai-pipelines-bucket
+deploymentSpec:
+  executors:
+    exec-deploy-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - deploy_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'google-cloud-aiplatform'\
+          \ 'scikit-learn' 'kfp==2.0.0' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef deploy_model(region: str, best_model_artifact: Input[Artifact]):\n\
+          \    \"\"\"Deploy the model\"\"\"\n    from google.cloud import aiplatform\n\
+          \    from pathlib import Path\n\n    SKLEARN_MODEL_URI = str(Path(best_model_artifact.path).parent).replace(\n\
+          \        \"/gcs/\", \"gs://\"\n    )\n    MODEL_NAME = \"sklearn-model\"\
+          \n    ENDPOINT_NAME = \"sklearn-model-endpoint\"\n    GCP_PROJECT = \"tamu-vertex-ai-pipelines\"\
+          \n    SERVING_CONTAINER_IMAGE_URI = (\n        \"us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-2:latest\"\
+          \n    )\n    MACHINE_TYPE = \"n1-standard-4\"\n\n    aiplatform.init(project=GCP_PROJECT,\
+          \ location=region)\n    models = aiplatform.Model.list(filter=(f\"display_name={MODEL_NAME}\"\
+          ))\n    if len(models) > 0:\n        print(\"Model already deployed\")\n\
+          \        model = aiplatform.Model.upload(\n            parent_model=models[0].resource_name,\n\
+          \            display_name=MODEL_NAME,\n            artifact_uri=SKLEARN_MODEL_URI,\n\
+          \            serving_container_image_uri=SERVING_CONTAINER_IMAGE_URI,\n\
+          \        )\n    else:\n        print(\"Model not deployed\")\n        model\
+          \ = aiplatform.Model.upload(\n            display_name=MODEL_NAME,\n   \
+          \         artifact_uri=SKLEARN_MODEL_URI,\n            serving_container_image_uri=SERVING_CONTAINER_IMAGE_URI,\n\
+          \        )\n    model.wait()\n\n    endpoint = aiplatform.Endpoint.create(display_name=ENDPOINT_NAME)\n\
+          \    endpoint = model.deploy(\n        endpoint=endpoint,\n        machine_type=MACHINE_TYPE,\n\
+          \        min_replica_count=1,\n        max_replica_count=1,\n        sync=True,\n\
+          \    )\n\n    # check if model is already deployed and undeploy\n    # for\
+          \ model in endpoint.list_models():\n    #     if model.id not in endpoint.traffic_split:\n\
+          \    #         endpoint.undeploy(deployed_model_id=model.id)\n\n    # test\
+          \ model\n    X_test = [[0.5, 0.5, 0.5, 0.5]]\n    print(endpoint.predict(instances=X_test).predictions)\n\
+          \n"
+        image: python:3.9
+    exec-exit-op:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - exit_op
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'kfp==2.0.0'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef exit_op(status: PipelineTaskFinalStatus):\n    \"\"\"Prints pipeline\
+          \ run status.\"\"\"\n    print(\"Pipeline status: \", status.state)\n  \
+          \  print(\"Job resource name: \", status.pipeline_job_resource_name)\n \
+          \   print(\"Pipeline task name: \", status.pipeline_task_name)\n    print(\"\
+          Error code: \", status.error_code)\n    print(\"Error message: \", status.error_message)\n\
+          \n    # send task status to cloud function\n\n"
+        image: python:3.7
+    exec-generate-best-model-metrics:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - generate_best_model_metrics
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'pandas'\
+          \ 'scikit-learn' 'kfp==2.0.0' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef generate_best_model_metrics(\n    best_model_artifact: Input[Model],\n\
+          \    test_dataset_artifact: Input[Dataset],\n    metrics_artifact: Output[Metrics],\n\
+          \    classification_metrics_artifact: Output[ClassificationMetrics],\n)\
+          \ -> float:\n    \"\"\"Generate metrics for the model\"\"\"\n    from pathlib\
+          \ import Path\n    from sklearn import metrics\n    from joblib import load\n\
+          \    import pandas as pd\n\n    model_path = Path(best_model_artifact.path).parent\
+          \ / \"model.joblib\"\n    dataset_path = Path(test_dataset_artifact.path).with_suffix(\"\
+          .csv\")\n\n    df = pd.read_csv(dataset_path)\n    X = df.drop(\"variety\"\
+          , axis=1)\n    y = df[\"variety\"]\n\n    model = load(model_path)\n   \
+          \ y_pred = model.predict(X)\n\n    accuracy = metrics.accuracy_score(y,\
+          \ y_pred)\n    precision = metrics.precision_score(y, y_pred, average=\"\
+          macro\")\n    recall = metrics.recall_score(y, y_pred, average=\"macro\"\
+          )\n    f1 = metrics.f1_score(y, y_pred, average=\"macro\")\n\n    metrics_artifact.log_metric(\"\
+          accuracy\", accuracy)\n    metrics_artifact.log_metric(\"precision\", precision)\n\
+          \    metrics_artifact.log_metric(\"recall\", recall)\n    metrics_artifact.log_metric(\"\
+          f1\", f1)\n\n    classification_metrics_artifact.log_confusion_matrix(\n\
+          \        categories=[\"setosa\", \"versicolor\", \"virginica\"],\n     \
+          \   matrix=metrics.confusion_matrix(y, y_pred).tolist(),\n    )\n    return\
+          \ accuracy\n\n"
+        image: python:3.7
+    exec-grab-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - grab_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'pandas'\
+          \ 'google-cloud-storage' 'kfp==2.0.0' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef grab_data(bucket_name: str, blob_name: str, dataset_artifact:\
+          \ Output[Dataset]):\n    \"\"\"\n    Grab data from GCS and save it as a\
+          \ dataset\n    @param bucket_name: The name of the bucket\n    @param blob_name:\
+          \ The name of the blob\n    @param dataset: The output dataset\n    @return:\
+          \ None\n    \"\"\"\n    from google.cloud import storage\n    from pathlib\
+          \ import Path\n\n    # download the dataset and save it as a csv\n    dataset_path\
+          \ = Path(dataset_artifact.path).with_suffix(\".csv\")\n    storage_client\
+          \ = storage.Client()\n    bucket = storage_client.bucket(bucket_name)\n\
+          \    blob = bucket.blob(blob_name)\n    blob.download_to_filename(dataset_path)\n\
+          \n    # create a dataset from the csv\n    dataset_artifact.metadata[\"\
+          name\"] = \"iris-data\"\n    dataset_artifact.metadata[\"description\"]\
+          \ = \"Iris dataset\"\n    dataset_artifact.metadata[\"labels\"] = {\"task\"\
+          : \"classification\"}\n\n"
+        image: python:3.9
+    exec-log-statistics:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - log_statistics
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'pandas'\
+          \ 'kfp==2.0.0' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef log_statistics(dataset_artifact: Input[Dataset]):\n    \"\"\"\
+          Log statistics about the dataset\"\"\"\n    import pandas as pd\n    from\
+          \ pathlib import Path\n\n    dataset_path = Path(dataset_artifact.path).with_suffix(\"\
+          .csv\")\n    df = pd.read_csv(dataset_path)\n    print(df.columns)\n   \
+          \ print(df.describe())\n\n"
+        image: python:3.7
+    exec-score-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - score_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'pandas'\
+          \ 'scikit-learn' 'kfp==2.0.0' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef score_model(\n    algorithm: str, dataset_artifact: Input[Dataset],\
+          \ model_artifact: Output[Model]\n) -> float:\n    \"\"\"Train a model on\
+          \ the dataset\"\"\"\n    import pandas as pd\n    from pathlib import Path\n\
+          \    from sklearn.discriminant_analysis import (\n        LinearDiscriminantAnalysis,\n\
+          \        QuadraticDiscriminantAnalysis,\n    )\n    from sklearn.linear_model\
+          \ import LogisticRegression\n    from sklearn.naive_bayes import GaussianNB\n\
+          \    from sklearn.neighbors import KNeighborsClassifier\n    from sklearn.svm\
+          \ import SVC\n    from sklearn.tree import DecisionTreeClassifier\n    from\
+          \ sklearn.model_selection import cross_val_score\n    from joblib import\
+          \ dump\n\n    algorithms_dict = {\n        \"Decision Tree\": DecisionTreeClassifier(max_depth=3,\
+          \ random_state=1),\n        \"Naive Bayes\": GaussianNB(),\n        \"LDA\"\
+          : LinearDiscriminantAnalysis(),\n        \"QDA\": QuadraticDiscriminantAnalysis(),\n\
+          \        \"KNN\": KNeighborsClassifier(),\n        \"SVM\": SVC(kernel=\"\
+          linear\"),\n        \"Logistic Regression\": LogisticRegression(),\n   \
+          \ }\n\n    # Train the models\n    dataset_path = Path(dataset_artifact.path).with_suffix(\"\
+          .csv\")\n\n    df = pd.read_csv(dataset_path)\n    X = df.drop(\"variety\"\
+          , axis=1)\n    y = df[\"variety\"]\n\n    # get the accuracy score\n   \
+          \ cls = algorithms_dict[algorithm]\n    accuracy_scores = cross_val_score(cls,\
+          \ X, y, cv=5)\n    accuracy = accuracy_scores.mean()\n\n    # update the\
+          \ model artifact metadata\n    model_artifact.metadata[\"algorithm\"] =\
+          \ algorithm\n    model_artifact.metadata[\"score\"] = accuracy\n\n    #\
+          \ Save the model to the model artifact\n    dump(cls, model_artifact.path)\n\
+          \    return accuracy\n\n"
+        image: python:3.7
+    exec-split-dataset:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - split_dataset
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'pandas'\
+          \ 'scikit-learn' 'kfp==2.0.0' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef split_dataset(\n    test_size: float,\n    dataset_artifact:\
+          \ Input[Dataset],\n    train_dataset_artifact: Output[Dataset],\n    test_dataset_artifact:\
+          \ Output[Dataset],\n):\n    \"\"\"Split the dataset into train and test\"\
+          \"\"\n    import pandas as pd\n    from pathlib import Path\n    from sklearn.model_selection\
+          \ import train_test_split\n\n    df = pd.read_csv(Path(dataset_artifact.path).with_suffix(\"\
+          .csv\"))\n    train_df, test_df = train_test_split(\n        df, test_size=test_size,\
+          \ random_state=42, stratify=df[\"variety\"]\n    )\n\n    train_dataset_path\
+          \ = Path(train_dataset_artifact.path).with_suffix(\".csv\")\n    test_dataset_path\
+          \ = Path(test_dataset_artifact.path).with_suffix(\".csv\")\n\n    train_dataset_artifact.metadata[\"\
+          name\"] = \"iris-train-data\"\n    train_dataset_artifact.metadata[\"size\"\
+          ] = len(train_df)\n    train_df.to_csv(train_dataset_path, index=False)\n\
+          \n    test_dataset_artifact.metadata[\"name\"] = \"iris-test-data\"\n  \
+          \  test_dataset_artifact.metadata[\"size\"] = len(test_df)\n    test_df.to_csv(test_dataset_path,\
+          \ index=False)\n\n"
+        image: python:3.7
+    exec-train-best-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_best_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'pandas'\
+          \ 'scikit-learn' 'kfp==2.0.0' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_best_model(\n    score_models: Input[List[Model]],\n  \
+          \  train_dataset_artifact: Input[Dataset],\n    best_model_artifact: Output[Model],\n\
+          ):\n    from pathlib import Path\n    import pandas as pd\n    from joblib\
+          \ import load, dump\n\n    # read dataset\n    train_dataset_path = Path(train_dataset_artifact.path).with_suffix(\"\
+          .csv\")\n    df = pd.read_csv(train_dataset_path)\n    X = df.drop(\"variety\"\
+          , axis=1)\n    y = df[\"variety\"]\n\n    # get the best model\n    best_scored_model\
+          \ = max(score_models, key=lambda model: model.metadata[\"score\"])\n\n \
+          \   # train the best model\n    cls = load(best_scored_model.path)\n   \
+          \ cls.fit(X, y)\n\n    # update the best model artifact metadata and save\
+          \ the model\n    best_model_artifact.metadata = best_scored_model.metadata\n\
+          \    best_model_path = Path(best_model_artifact.path)\n    best_model_path.parent.mkdir(parents=True,\
+          \ exist_ok=True)\n    dump(cls, best_model_path.parent / \"model.joblib\"\
+          )\n\n"
+        image: python:3.7
+pipelineInfo:
+  name: ml-pipeline
+root:
+  dag:
+    outputs:
+      artifacts:
+        generate-best-model-metrics-classification_metrics_artifact:
+          artifactSelectors:
+          - outputArtifactKey: generate-best-model-metrics-classification_metrics_artifact
+            producerSubtask: exit-handler-1
+        generate-best-model-metrics-metrics_artifact:
+          artifactSelectors:
+          - outputArtifactKey: generate-best-model-metrics-metrics_artifact
+            producerSubtask: exit-handler-1
+    tasks:
+      exit-handler-1:
+        componentRef:
+          name: comp-exit-handler-1
+        inputs:
+          parameters:
+            pipelinechannel--blob_name:
+              componentInputParameter: blob_name
+            pipelinechannel--bucket_name:
+              componentInputParameter: bucket_name
+        taskInfo:
+          name: exit-handler
+      exit-op:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-exit-op
+        dependentTasks:
+        - exit-handler-1
+        inputs:
+          parameters:
+            status:
+              taskFinalStatus:
+                producerTask: exit-handler-1
+        taskInfo:
+          name: exit-op
+        triggerPolicy:
+          strategy: ALL_UPSTREAM_TASKS_COMPLETED
+  inputDefinitions:
+    parameters:
+      blob_name:
+        parameterType: STRING
+      bucket_name:
+        parameterType: STRING
+  outputDefinitions:
+    artifacts:
+      generate-best-model-metrics-classification_metrics_artifact:
+        artifactType:
+          schemaTitle: system.ClassificationMetrics
+          schemaVersion: 0.0.1
+      generate-best-model-metrics-metrics_artifact:
+        artifactType:
+          schemaTitle: system.Metrics
+          schemaVersion: 0.0.1
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.0.0

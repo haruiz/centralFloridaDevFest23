@@ -1,0 +1,51 @@
+# PIPELINE DEFINITION
+# Name: hello-world-pipeline
+# Description: Pipeline definition
+components:
+  comp-hello-world:
+    executorLabel: exec-hello-world
+defaultPipelineRoot: gs://tamu-vertex-ai-pipelines-bucket
+deploymentSpec:
+  executors:
+    exec-hello-world:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - hello_world
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'kfp==2.0.0'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef hello_world():\n    \"\"\"\n    Hello World component\n    \"\
+          \"\"\n    print(\"Hello World\")\n\n"
+        image: python:3.9
+pipelineInfo:
+  description: Pipeline definition
+  name: hello-world-pipeline
+root:
+  dag:
+    tasks:
+      hello-world:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-hello-world
+        taskInfo:
+          name: hello-world
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.0.0

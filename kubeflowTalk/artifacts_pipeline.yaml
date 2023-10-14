@@ -1,0 +1,125 @@
+# PIPELINE DEFINITION
+# Name: artifacts-pipeline
+# Description: Pipeline definition
+# Inputs:
+#    file_content: str
+components:
+  comp-create-file:
+    executorLabel: exec-create-file
+    inputDefinitions:
+      parameters:
+        content:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        file_artifact:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+  comp-read-file:
+    executorLabel: exec-read-file
+    inputDefinitions:
+      artifacts:
+        file_artifact:
+          artifactType:
+            schemaTitle: system.Artifact
+            schemaVersion: 0.0.1
+defaultPipelineRoot: gs://tamu-vertex-ai-pipelines-bucket
+deploymentSpec:
+  executors:
+    exec-create-file:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - create_file
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'kfp==2.0.0'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef create_file(content: str, file_artifact: Output[Artifact]):\n\
+          \    \"\"\"\n    Create a file\n    \"\"\"\n    with open(file_artifact.path,\
+          \ \"w\") as f:\n        f.write(content)\n\n    file_artifact.metadata[\"\
+          name\"] = \"file\"\n    file_artifact.metadata[\"description\"] = \"A file\"\
+          \n\n"
+        image: python:3.9
+    exec-read-file:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - read_file
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet     --no-warn-script-location 'kfp==2.0.0'\
+          \ && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          python3 -m kfp.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef read_file(file_artifact: Input[Artifact]):\n    \"\"\"\n    Read\
+          \ a file\n    \"\"\"\n    with open(file_artifact.path, \"r\") as f:\n \
+          \       print(f.read())\n\n"
+        image: python:3.9
+pipelineInfo:
+  description: Pipeline definition
+  name: artifacts-pipeline
+root:
+  dag:
+    tasks:
+      create-file:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-create-file
+        inputs:
+          parameters:
+            content:
+              componentInputParameter: file_content
+        taskInfo:
+          name: create-file
+      read-file:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-read-file
+        dependentTasks:
+        - create-file
+        inputs:
+          artifacts:
+            file_artifact:
+              taskOutputArtifact:
+                outputArtifactKey: file_artifact
+                producerTask: create-file
+        taskInfo:
+          name: read-file
+  inputDefinitions:
+    parameters:
+      file_content:
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.0.0
